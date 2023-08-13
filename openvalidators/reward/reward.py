@@ -89,10 +89,10 @@ class BaseRewardModel:
         """
         # Get indices of correctly responding calls.
         
-        successful_completions_indices: List[int] = [ idx for idx, resp in enumerate(responses) if resp.is_success ]
+        successful_completions_indices: List[int] = [ idx for idx, resp in enumerate(responses)]
 
         # Get all completions from responding calls.
-        successful_completions: List[str] = [ responses[idx].completion.strip() for idx in successful_completions_indices]
+        successful_completions: List[str] = [ responses[idx].strip() for idx in successful_completions_indices]
 
         # Reward each completion.
         successful_rewards = self.get_rewards( prompt, successful_completions, name )
