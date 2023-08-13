@@ -12,6 +12,6 @@ do
     PORT=$((START_PORT + i))
 
     # Start the process with pm2
-    pm2 start --name "${PORT}" --interpreter=python3 ~/reward_endpoint2.py -- --gpu $GPU_ID --port $PORT
+    pm2 start --name "${PORT}" --interpreter=python3 ~/reward_endpoint/reward_endpoint2.py -- --gpu $GPU_ID --port $PORT
 done
 
