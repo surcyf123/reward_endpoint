@@ -6,9 +6,16 @@ import time
 urls= [    
     "http://213.173.102.136:10400", "http://213.173.102.136:10401", "http://213.173.102.136:10402",
     "http://172.17.0.3:30000", "http://172.17.0.3:30001", "http://172.17.0.3:30002", "http://172.17.0.3:30003", "http://172.17.0.3:30004", "http://172.17.0.3:30005", "http://172.17.0.3:30006", "http://172.17.0.3:30007", 
+<<<<<<< HEAD
 ]
 
 url = urls[2]
+=======
+
+]
+
+# url = urls[0]
+>>>>>>> my_temp_branch
 
 # Data to send
 data = {
@@ -28,7 +35,10 @@ As for a related and insightful question: Can you elaborate on the specific cont
     ]
 }
 
+<<<<<<< HEAD
 # Make the POST request
+=======
+>>>>>>> my_temp_branch
 
 for url in urls:
     start_time = time.time()
@@ -36,4 +46,8 @@ for url in urls:
 
     print(json.dumps(response.json()))
     time_taken = time.time() - start_time
+<<<<<<< HEAD
     print(time_taken)
+=======
+    print(time_taken)
+>>>>>>> my_temp_branch
