@@ -1,15 +1,4 @@
-import torch
-import bittensor as bt
-from typing import List
-from openvalidators.dendrite import AsyncDendritePool
-from openvalidators.config import add_args, check_config, config
-from openvalidators.run import run
-from openvalidators.misc import ttl_get_block
-from openvalidators.reward import (
-    OpenAssistantRewardModel,
-    # ReciprocateRewardModel,
-    RelevanceRewardModel,
-)
+      
 import logging
 logging.basicConfig(level=logging.INFO)
 SQRT_TWO = torch.tensor([2.0])
