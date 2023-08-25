@@ -7,7 +7,7 @@ from openvalidators.run import run
 from openvalidators.misc import ttl_get_block
 from openvalidators.reward import (
     OpenAssistantRewardModel,
-    ReciprocateRewardModel,
+    # ReciprocateRewardModel,
     RelevanceRewardModel,
 )
 import logging
@@ -17,7 +17,7 @@ SQRT_TWO = torch.tensor([2.0])
 class RewardNormalizer:
     def __init__(self, reward_model_names: List[str]):
         self.rewards_stats = {
-            name: {'count': 0, 'mean': 0.0, 'var': 1.0} for name in ['rlhf_reward_model', 'reciprocate_reward_model', 'relevance_filter']
+            name: {'count': 0, 'mean': 0.0, 'var': 1.0} for name in ['rlhf_reward_model', 'relevance_filter']
         }
         self.count_limit = 1e6  # This can be adjusted based on your requirements.
 
@@ -75,7 +75,7 @@ class reward_endpoint:
         self.device = torch.device(f"cuda:{gpu_id}")
         self.reward_weights = torch.tensor([
             self.config.reward.rlhf_weight, 
-            self.config.reward.reciprocate_weight, 
+            # self.config.reward.reciprocate_weight, 
         ], dtype=torch.float32).to(self.device)
         self._normalizer = None
 
@@ -84,7 +84,7 @@ class reward_endpoint:
 
         self.reward_functions = [
             OpenAssistantRewardModel(device=self.device),
-            ReciprocateRewardModel(device=self.device)
+            # ReciprocateRewardModel(device=self.device)
         ]
 
         assert len(self.reward_functions) == len(self.reward_weights), "Length of reward function weights and reward functions do not match"
@@ -94,7 +94,7 @@ class reward_endpoint:
     @property
     def normalizer(self):
         if self._normalizer is None:
-            self._normalizer = RewardNormalizer(['rlhf_reward_model', 'reciprocate_reward_model', 'relevance_filter'])
+            self._normalizer = RewardNormalizer(['rlhf_reward_model', 'relevance_filter'])
         return self._normalizer
 
     def calculate_total_reward(self, prompt, responses, name="augment"):

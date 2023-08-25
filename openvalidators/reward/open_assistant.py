@@ -32,7 +32,7 @@ class OpenAssistantRewardModel( BaseRewardModel ):
         super().__init__()
         self.device = device
         self.tokenizer = AutoTokenizer.from_pretrained( OpenAssistantRewardModel.reward_model_name )
-        self.model = AutoModelForSequenceClassification.from_pretrained( OpenAssistantRewardModel.reward_model_name ) .to(self.device)
+        self.model = AutoModelForSequenceClassification.from_pretrained( OpenAssistantRewardModel.reward_model_name ).to(self.device)
 
     def reward_single( self, prompt: str, completion: str, name: str ) -> float:
         with torch.no_grad():
