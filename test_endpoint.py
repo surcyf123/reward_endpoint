@@ -1,12 +1,15 @@
 import requests
 import json
+import time
 
 # Endpoint URL
 urls= [    
     "http://213.173.102.136:10400", "http://213.173.102.136:10401", "http://213.173.102.136:10402",
+    "http://172.17.0.3:30000", "http://172.17.0.3:30001", "http://172.17.0.3:30002", "http://172.17.0.3:30003", "http://172.17.0.3:30004", "http://172.17.0.3:30005", "http://172.17.0.3:30006", "http://172.17.0.3:30007", 
+
 ]
 
-url = urls[0]
+# url = urls[0]
 
 # Data to send
 data = {
@@ -26,8 +29,11 @@ As for a related and insightful question: Can you elaborate on the specific cont
     ]
 }
 
-# Make the POST request
-response = requests.post(url, json=data)
 
-# Print the response
-print(json.dumps(response.json()))
+for url in urls:
+    start_time = time.time()
+    response = requests.post(url, json=data)
+
+    print(json.dumps(response.json()))
+    time_taken = time.time() - start_time
+    print(time_taken)
