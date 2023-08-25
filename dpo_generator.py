@@ -1,28 +1,72 @@
 from flask import Flask, request, jsonify
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+import gc
+import argparse
 
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", default=8008, type=int, help="Port number to run the Flask app")
+    parser.add_argument("--gpu", default=0, type=int, help="GPU device index to use")
+    return parser.parse_args()
+
+args = parse_arguments()
+device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+
+# Initialize Flask app
 app = Flask(__name__)
 
+# Model and Tokenizer Initialization
 MODEL_NAME = "cerebras/btlm-3b-8k-base"
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True).to(device)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True).to(device).eval()  # Set model to evaluation mode
+model = model.half()
 
-@app.route('/generate', methods=['POST'])
+@app.route('/', methods=['POST'])
 def generate():
     content = request.json
     prompt = content.get('prompt', '')
-    
+
+    # Hard-coded parameters for controlling the generation
+    temperature = 0.7
+    top_k = 50
+    top_p = 0.95
+
     if not prompt:
         return jsonify(error="Prompt not provided"), 400
 
-    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
-    completions = model.generate(input_ids, max_length=50, num_return_sequences=5, pad_token_id=tokenizer.eos_token_id, do_sample=True)
+    # Tokenize the prompt with truncation
+    input_ids = tokenizer.encode(prompt, return_tensors="pt", truncation=True, max_length=tokenizer.model_max_length).to(device)
 
-    completions_texts = [tokenizer.decode(completion, skip_special_tokens=True) for completion in completions]
+    # Use torch.no_grad() to save memory during inference
+    with torch.no_grad():
+        completions = model.generate(
+            input_ids, 
+            max_length=min(len(input_ids[0]) + 200, tokenizer.model_max_length),  # Adjust for desired completion length
+            num_return_sequences=2, 
+            pad_token_id=tokenizer.eos_token_id, 
+            do_sample=True,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p
+        )
 
-    return jsonify(completions=completions_texts)
+    # Decode completions excluding the input prompt
+    completions_texts = [tokenizer.decode(completion[len(input_ids[0]):], skip_special_tokens=False) for completion in completions]
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Structure the response
+    response_data = {
+        "prompt": prompt,
+        "responses": completions_texts
+    }
+
+    # Explicitly delete tensors and force garbage collection
+    del input_ids
+    del completions
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    return jsonify(response_data)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=args.port, threaded=True, debug=False)

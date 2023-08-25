@@ -1,104 +1,103 @@
 from flask import Flask, request, jsonify
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
-import bittensor as bt
-from typing import List
-from openvalidators.dendrite import AsyncDendritePool
-from openvalidators.config import add_args, check_config, config
-from openvalidators.run import run
-from openvalidators.misc import ttl_get_block
-from openvalidators.reward import (
-    # OpenAssistantRewardModel,
-    # ReciprocateRewardModel,
-    # RelevanceRewardModel,
-    DirectPreferenceRewardModel
-)
+from openvalidators.reward import DirectPreferenceRewardModel
 import logging
+import argparse
+from reward import BaseRewardModel
+import threading
+
 logging.basicConfig(level=logging.INFO)
-SQRT_TWO = torch.tensor([2.0])
-
-class RewardNormalizer:
-    def __init__(self, reward_model_names: List[str]):
-        self.rewards_stats = {
-            name: {'count': 0, 'mean': 0.0, 'var': 1.0} for name in ['rlhf_reward_model', 'relevance_filter']
-        }
-        self.count_limit = 1e6  # This can be adjusted based on your requirements.
-
-    def normalize_rewards(self, rewards: torch.FloatTensor, reward_model_name: str) -> torch.FloatTensor:
-        # logging.debug(f"Initial rewards for {reward_model_name}: {rewards}")
-        # Skip normalization for the relevance filter
-        if reward_model_name == "relevance_filter":
-            return rewards
-        stats = self.rewards_stats[reward_model_name]
-        new_count = rewards.numel()
-
-        # Update stats only if there are new rewards.
-        if 0 < new_count and 0 < stats['count'] + new_count:
-            new_mean = rewards.mean()
-            new_var = rewards.var(dim=0)
-            new_weight = new_count / (stats['count'] + new_count)
-            old_weight = stats['count'] / (stats['count'] + new_count)
-
-            # Save the difference in means before updating the old mean.
-            diff = new_mean - stats['mean']
-
-            # Update the old mean with the new mean and weights.
-            stats['mean'] = new_weight * new_mean + old_weight * stats['mean']
-            # Update the old variance with the new variance and weights, and adjusting for the difference in means.
-            stats['var'] = (new_weight * new_var) + (old_weight * stats['var']) + (new_weight * old_weight) * diff * diff
-            # Update the old count with the new count, but don't exceed the limit.
-            stats['count'] = min(self.count_limit, stats['count'] + new_count)
-
-        # Standardize the rewards using the updated mean and variance.
-        rewards = rewards - stats['mean']
-        if stats['var'] > 0:
-            rewards /= torch.sqrt(stats['var'])
-        # Scale the standardized rewards to the range [0, 1] using the error function as a CDF.
-        normalized_rewards = 0.5 * (1 + torch.erf(rewards / SQRT_TWO.to(rewards.device)))
-        
-        # logging.debug(f"Normalized rewards for {reward_model_name}: {normalized_rewards}")
-        return normalized_rewards
+MODEL_NAME = "cerebras/btlm-3b-8k-base"
+semaphore = threading.Semaphore(8)  # Limit to 8 concurrent requests
 app = Flask(__name__)
 
-MODEL_NAME = "cerebras/btlm-3b-8k-base"
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True).to(device)
+class reward_endpoint:
+    def __init__(self, device):
+        self.device = device
+        self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+        self.model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True).to(self.device)
+        
+        self.reward_weights = torch.tensor([1.0], dtype=torch.float32).to(self.device)
+        self.reward_functions = [DirectPreferenceRewardModel(device=self.device)]
+        self.normalizer = BaseRewardModel()
 
-def reward_single(prompt, completion):
-    """Compute reward for a single completion."""
-    with torch.no_grad():
-        combined = tokenizer(prompt + completion, return_tensors="pt").input_ids[0].to(device)
-        prompt_part = tokenizer(prompt, return_tensors="pt").input_ids[0].to(device)
 
-        if tokenizer.model_max_length <= len(prompt_part) or tokenizer.model_max_length < len(combined):
-            return -11.
+def compute_reward(logits, labels, loss_mask):
+    """Compute reward from logits and labels."""
+    logits = logits.log_softmax(-1)
+    per_token_logps = torch.gather(logits, dim=2, index=labels).squeeze(2)
+    reward = (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
 
-        labels = combined.clone()
-        labels[:len(prompt_part)] = -100
-        labels = labels[1:]
-        loss_mask = (labels != -100)
-        labels[labels == -100] = 0
-        labels = labels.unsqueeze(0).unsqueeze(2)
-        logits = model(combined.unsqueeze(0)).logits[:, :-1, :]
+    # Check for NaNs or Infs on GPU tensor
+    if torch.any(torch.isnan(reward)) or torch.any(torch.isinf(reward)):
+        reward[torch.isnan(reward) | torch.isinf(reward)] = -11.  # exp(-11)=1.67e-5 < 2e-5=1/50257 (typical vocab size)
+
+    return reward
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", default=8008, type=int, help="Authentication token")
+    parser.add_argument("--gpu", default=0, type=int, help="GPU device to use")
+    args = parser.parse_args()
+    return args
+    
+@app.route("/", methods=["POST"])
+def chat():
+    with semaphore:
+        content = request.json
+        prompt = content.get('prompt', '')
+        completions = content.get('responses', [])
+
+        if not prompt or not completions:
+            return jsonify(error="Both prompt and responses are required"), 400
+
+        rewards = []
+        token_probabilities = []
+
+        # Tokenize the prompt once
+        prompt_ids = rw.tokenizer.encode(prompt, return_tensors="pt")[0].to(device)
+
+        for completion in completions:
+            # Tokenize only the completion
+            completion_ids = rw.tokenizer.encode(completion, add_special_tokens=False, return_tensors="pt")[0].to(device)
+            combined = torch.cat([prompt_ids, completion_ids])
+
+            if rw.tokenizer.model_max_length <= len(prompt_ids) or rw.tokenizer.model_max_length < len(combined):
+                rewards.append(-11.)
+                token_probabilities.append({})
+                continue
+
+            labels = combined.clone()
+            labels[:len(prompt_ids)] = -100
+            labels = labels[1:]
+            loss_mask = (labels != -100)
+            labels[labels == -100] = 0
+            labels = labels.unsqueeze(0).unsqueeze(2)
+            logits = rw.model(combined.unsqueeze(0)).logits[:, :-1, :]
+
+            # Convert logits to probabilities
+            probs = logits.softmax(dim=2)
+
+            # Extract individual token probabilities
+            token_probs = {}
+            for i, token_id in enumerate(labels.squeeze().tolist()):
+                token = rw.tokenizer.decode([token_id])  # <-- Modification here
+                token_prob = probs[0, i, token_id].item()
+                token_probs[token] = token_prob
 
         reward = compute_reward(logits, labels, loss_mask)
+        normalized_reward = rw.normalizer.normalize_rewards(reward, MODEL_NAME) 
 
-        if torch.isnan(reward) or torch.isinf(reward):
-            return -11.
-        return reward
+        rewards.append(normalized_reward)
+        token_probabilities.append(token_probs)
 
-@app.route('/score', methods=['POST'])
-def score():
-    content = request.json
-    prompt = content.get('prompt', '')
-    completion = content.get('completion', '')
-    
-    if not prompt or not completion:
-        return jsonify(error="Both prompt and completion are required"), 400
+    return jsonify(rewards=rewards, token_probabilities=token_probabilities)
 
-    reward = reward_single(prompt, completion)
-    return jsonify(reward=reward)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+if __name__ == "__main__":
+    args = parse_arguments()
+    device = torch.device(f"cuda:{args.gpu}")
+    rw = reward_endpoint(device)
+    app.run(host="0.0.0.0", port=args.port, threaded=False, debug=False)

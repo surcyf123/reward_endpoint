@@ -21,6 +21,7 @@ from typing import List
 from abc import abstractmethod
 
 class BaseRewardModel:
+    SQRT_TWO = torch.tensor([2.0])
 
     @property
     @abstractmethod
@@ -36,73 +37,63 @@ class BaseRewardModel:
         self.mean = 0.0
         self.var = 0.0
         self.count_limit = 3000
+        self.rewards_stats = {
+        name: {'count': self.count, 'mean': self.mean, 'var': self.var} for name in ['rlhf_reward_model', 'relevance_filter']
+        }
 
-    def normalize_rewards( self, rewards: torch.FloatTensor ) -> torch.FloatTensor:
-        """
-            This method normalizes the given rewards by updating the moving mean and variance statistics. The rewards are first standardized, and then scaled to the 0-1 range using a cumulative distribution function (CDF) to ensure they're in a comparable range across different environments.
-
-            Args:
-            rewards (torch.FloatTensor): The reward values to be normalized.
-
-            Returns:
-            torch.FloatTensor: The normalized reward values.
-
-            Note:
-            - This function uses Welford's online algorithm to update the mean and variance.
-            - It standardizes the reward values using the updated mean and variance.
-            - It then scales the standardized values to the 0-1 range using the error function (erf) as a CDF.
-        """        
-        # Get the number of rewards (successful responses).
+    def normalize_rewards(self, rewards: torch.FloatTensor, reward_model_name: str) -> torch.FloatTensor:
+        # logging.debug(f"Initial rewards for {reward_model_name}: {rewards}")
+        # Skip normalization for the relevance filter
+        if reward_model_name == "relevance_filter":
+            return rewards
+        stats = self.rewards_stats[reward_model_name]
         new_count = rewards.numel()
 
         # Update stats only if there are new rewards.
-        if 0 < new_count and 0 < self.count + new_count:
-            # Calculate the mean and standard deviation of the new rewards.
+        if 0 < new_count and 0 < stats['count'] + new_count:
             new_mean = rewards.mean()
             new_var = rewards.var(dim=0)
-
-            # Compute the weights for the new and old rewards.
-            new_weight = new_count / (self.count + new_count)
-            old_weight = self.count / (self.count + new_count)
+            new_weight = new_count / (stats['count'] + new_count)
+            old_weight = stats['count'] / (stats['count'] + new_count)
 
             # Save the difference in means before updating the old mean.
-            diff = new_mean - self.mean
+            diff = new_mean - stats['mean']
 
             # Update the old mean with the new mean and weights.
-            self.mean = new_weight * new_mean + old_weight * self.mean
+            stats['mean'] = new_weight * new_mean + old_weight * stats['mean']
             # Update the old variance with the new variance and weights, and adjusting for the difference in means.
-            self.var = (new_weight * new_var) + (old_weight * self.var) + (new_weight * old_weight) * diff * diff
+            stats['var'] = (new_weight * new_var) + (old_weight * stats['var']) + (new_weight * old_weight) * diff * diff
             # Update the old count with the new count, but don't exceed the limit.
-            self.count = min(self.count_limit, self.count + new_count)
+            stats['count'] = min(self.count_limit, stats['count'] + new_count)
 
         # Standardize the rewards using the updated mean and variance.
-        rewards = rewards - self.mean
-        if self.var > 0:
-            rewards /= torch.sqrt(self.var)
-        # Scale the standardized rewards to the range [0, 1] using the error function as a cumulative distribution function (CDF).
-        rewards = 0.5 * (1 + torch.erf(rewards / torch.sqrt(torch.tensor([2.0])).to(rewards.device)))
+        rewards = rewards - stats['mean']
+        if stats['var'] > 0:
+            rewards /= torch.sqrt(stats['var'])
+        # Scale the standardized rewards to the range [0, 1] using the error function as a CDF.
+        normalized_rewards = 0.5 * (1 + torch.erf(rewards / SQRT_TWO.to(rewards.device)))
+        
+        # logging.debug(f"Normalized rewards for {reward_model_name}: {normalized_rewards}")
+        return normalized_rewards
 
-        return rewards
-
-    def apply( self, prompt: str, responses: List[ bt.DendriteCall ], name: str) -> torch.FloatTensor:
+    def apply(self, prompt: str, responses: List[bt.DendriteCall], name: str, reward_model_name: str) -> torch.FloatTensor:
         """ Applies the reward model across each call. Unsuccessful responses are zeroed.
         """
         # Get indices of correctly responding calls.
-        
-        successful_completions_indices: List[int] = [ idx for idx, resp in enumerate(responses)]
+        successful_completions_indices = list(range(len(responses)))
 
         # Get all completions from responding calls.
-        successful_completions: List[str] = [ responses[idx].strip() for idx in successful_completions_indices]
+        successful_completions: List[str] = [responses[idx].strip() for idx in successful_completions_indices]
 
         # Reward each completion.
-        successful_rewards = self.get_rewards( prompt, successful_completions, name )
+        successful_rewards = self.get_rewards(prompt, successful_completions, name)
 
         # Softmax rewards across samples.
-        successful_rewards_normalized = self.normalize_rewards( successful_rewards )
+        successful_rewards_normalized = self.normalize_rewards(successful_rewards, reward_model_name)
 
         # Init zero rewards for all calls.
-        filled_rewards = torch.zeros( len( responses ), dtype=torch.float32)
-        filled_rewards_normalized = torch.zeros( len( responses ), dtype=torch.float32)
+        filled_rewards = torch.zeros(len(responses), dtype=torch.float32)
+        filled_rewards_normalized = torch.zeros(len(responses), dtype=torch.float32)
 
         # Fill reward tensor.
         for idx, reward, reward_normalized in zip(successful_completions_indices, successful_rewards, successful_rewards_normalized):
@@ -111,7 +102,6 @@ class BaseRewardModel:
 
         # Return the filled rewards.
         return filled_rewards, filled_rewards_normalized
-
 
 class MockRewardModel( BaseRewardModel ):
 

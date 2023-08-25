@@ -5,17 +5,11 @@ import time
 # Endpoint URL
 urls= [    
     "http://213.173.102.136:10400", "http://213.173.102.136:10401", "http://213.173.102.136:10402",
-    "http://172.17.0.3:30000", "http://172.17.0.3:30001", "http://172.17.0.3:30002", "http://172.17.0.3:30003", "http://172.17.0.3:30004", "http://172.17.0.3:30005", "http://172.17.0.3:30006", "http://172.17.0.3:30007", 
-<<<<<<< HEAD
-]
-
-url = urls[2]
-=======
-
+    "http://172.17.0.3:30000", "http://172.17.0.3:30001", "http://172.17.0.3:30004", "http://172.17.0.3:30005", "http://172.17.0.3:30006", "http://172.17.0.3:30007", 
+    "http://172.17.0.3:30002", "http://172.17.0.3:30003", 
 ]
 
 # url = urls[0]
->>>>>>> my_temp_branch
 
 # Data to send
 data = {
@@ -35,19 +29,22 @@ As for a related and insightful question: Can you elaborate on the specific cont
     ]
 }
 
-<<<<<<< HEAD
-# Make the POST request
-=======
->>>>>>> my_temp_branch
 
 for url in urls:
     start_time = time.time()
     response = requests.post(url, json=data)
 
-    print(json.dumps(response.json()))
+    # Check the status code
+    if response.status_code != 200:
+        print(f"Request to {url} failed with status code {response.status_code}.")
+        print("Response content:", response.text)
+        continue
+
+    try:
+        print(json.dumps(response.json()))
+    except json.JSONDecodeError:
+        print(f"Failed to decode JSON from response from {url}.")
+        print("Response content:", response.text)
+
     time_taken = time.time() - start_time
-<<<<<<< HEAD
     print(time_taken)
-=======
-    print(time_taken)
->>>>>>> my_temp_branch
