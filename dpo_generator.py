@@ -17,7 +17,7 @@ device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu"
 app = Flask(__name__)
 
 # Model and Tokenizer Initialization
-MODEL_NAME = "cerebras/btlm-3b-8k-base"
+MODEL_NAME = "misterkuka/4-bit-cerebras-3b-8k-base"
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True).to(device).eval()  # Set model to evaluation mode
 model = model.half()
