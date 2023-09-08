@@ -216,17 +216,17 @@ open_assistant_model = OpenAssistantRewardModel(device="cuda:0")
 rw = RewardEndpoint(gpu_id=0)
 
 # Define a prompt and a list of completions.
-prompt = "The capital of France is"
+prompt = "Given the historical significance and global influence of various European countries, it's essential to have basic knowledge of their capitals. Keeping that in mind, can you determine the capital of France? The capital of France is"
 completions = [
-    "Paris.",
-    "Berlin.",
-    "London.",
-    "Madrid."
+"Paris, which is not only the most populous city of France but also a hub for art, fashion, and culture. The city is known for its iconic landmarks such as the Eiffel Tower, Louvre Museum, and Notre-Dame Cathedral. Paris is often referred to as 'The City of Light' because it was one of the first cities in the world to have street lighting.",
+"Berlin, a city that played a crucial role in world history, especially during the 20th century. Berlin is, in fact, the capital of Germany and is known for its rich history, vibrant culture, and iconic Berlin Wall which once divided the city into East and West.",
+"London, an ancient city with a modern twist. From the historic Tower of London to the modern Shard, it offers a blend of old and new. However, London is the capital of the United Kingdom and not France.",
+"Madrid, which is the heart of Spain and its largest city. Madrid is known for its grand boulevards, royal palaces, and rich repositories of European art. Yet, it's important to note that Madrid is the capital of Spain, not France.",
 ]
 
 # Calculate the rewards and scores for each completion.
 resulting_dict = rw.calculate_total_reward(prompt, completions)
-pprint.pprint(resulting_dict)
+print(resulting_dict)
 
 
 if __name__ == "__main__":
